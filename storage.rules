@@ -1,0 +1,29 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isMember(groupId) {
+      return isSignedIn() &&
+        firestore.exists(/databases/(default)/documents/groups/$(groupId)/members/$(request.auth.uid)) &&
+        firestore.get(/databases/(default)/documents/groups/$(groupId)/members/$(request.auth.uid)).data.active == true;
+    }
+
+    function isAdmin(groupId) {
+      return isMember(groupId) &&
+        firestore.get(/databases/(default)/documents/groups/$(groupId)/members/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // /receipts/{groupId}/{expenseId}/{filename}
+    match /receipts/{groupId}/{expenseId}/{filename} {
+      allow read: if isMember(groupId);
+      // Uploader can write while submitting; admins can also manage (e.g. re-upload).
+      allow write: if isMember(groupId);
+      allow delete: if isAdmin(groupId);
+    }
+  }
+}

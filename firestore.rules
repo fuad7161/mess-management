@@ -1,0 +1,92 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- helpers ----------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isMember(groupId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid)).data.active == true;
+    }
+
+    function isAdmin(groupId) {
+      return isMember(groupId) &&
+        get(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function monthFinalized(groupId, month) {
+      return exists(/databases/$(database)/documents/groups/$(groupId)/monthlySummary/$(month)) &&
+        get(/databases/$(database)/documents/groups/$(groupId)/monthlySummary/$(month)).data.finalized == true;
+    }
+
+    // ---------- users/{uid} ----------
+    // createUserProfile runs via Cloud Function (Admin SDK), but allow the owner
+    // to read/update their own basic profile fields directly.
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      allow create, update: if isSelf(uid);
+      allow delete: if false;
+    }
+
+    // ---------- groups/{groupId} ----------
+    match /groups/{groupId} {
+      // Anyone signed in can read group docs (needed for searchGroups results, join flow).
+      allow read: if isSignedIn();
+      // All mutations (create/adminCount/memberCount/mealWeights/status) go through
+      // Cloud Functions (createGroup, updateMealWeights, deleteGroup, etc.) using Admin SDK.
+      allow write: if false;
+
+      match /members/{uid} {
+        allow read: if isMember(groupId);
+        // Membership changes (join approval, promote/demote, leave) are Cloud Function only.
+        allow write: if false;
+      }
+
+      match /joinRequests/{requestUid} {
+        allow read: if isAdmin(groupId) || isSelf(requestUid);
+        // requestToJoinGroup writes directly from the client per the design doc.
+        allow create: if isSelf(requestUid) && request.resource.data.status == 'pending';
+        // cancelJoinRequest (by requester) is a direct delete; approve/reject happens
+        // via the respondToJoinRequest Cloud Function (Admin SDK), not client update.
+        allow delete: if isSelf(requestUid) || isAdmin(groupId);
+        allow update: if false;
+      }
+
+      match /meals/{mealId} {
+        allow read: if isMember(groupId);
+        // meals/{uid}_{date} — user can only write their own doc, and only if that
+        // month isn't finalized yet. mealId format: "{uid}_{yyyy-mm-dd}".
+        allow create, update: if isMember(groupId) &&
+          mealId.split('_')[0] == request.auth.uid &&
+          !monthFinalized(groupId, mealId.split('_')[1].split('-')[0] + '-' + mealId.split('_')[1].split('-')[1]);
+        allow delete: if false;
+      }
+
+      match /expenses/{expenseId} {
+        allow read: if isMember(groupId);
+        // submitExpense enforces the adminCount>=2 gate and approveExpense enforces
+        // no-self-approval — both server-side. Client cannot write directly.
+        allow write: if false;
+      }
+
+      match /payments/{paymentId} {
+        allow read: if isMember(groupId);
+        allow write: if false; // via submitExpense/approveExpense-style Cloud Functions
+      }
+
+      match /monthlySummary/{month} {
+        allow read: if isMember(groupId);
+        allow write: if false; // written only by triggers / finalizeMonth
+      }
+    }
+  }
+}
