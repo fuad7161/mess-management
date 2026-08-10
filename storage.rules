@@ -21,8 +21,12 @@ service firebase.storage {
     // /receipts/{groupId}/{expenseId}/{filename}
     match /receipts/{groupId}/{expenseId}/{filename} {
       allow read: if isMember(groupId);
-      // Uploader can write while submitting; admins can also manage (e.g. re-upload).
-      allow write: if isMember(groupId);
+      allow create: if isMember(groupId) &&
+        request.resource.size < 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*') &&
+        request.resource.metadata.uploaderUid == request.auth.uid &&
+        filename.size() <= 150;
+      allow update: if false;
       allow delete: if isAdmin(groupId);
     }
   }

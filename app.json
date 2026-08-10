@@ -9,8 +9,13 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.messapp.management",
+      "googleServicesFile": "./google-services.json",
       "predictiveBackGestureEnabled": false
     },
-    "web": {}
+    "plugins": [
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth"
+    ]
   }
 }

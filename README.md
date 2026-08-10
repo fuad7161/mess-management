@@ -1,97 +1,99 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# Mess Manager
 
-# Getting Started
+An Android-first Expo/React Native app for shared-mess meal and expense management. It uses Firebase Phone Authentication, Cloud Firestore, Storage, and callable/background Cloud Functions.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+Implemented flows include phone OTP, group creation/search/join approval, member roles, two-admin activation, meal entries, Bazar/Payment/Extra Cost verification, live monthly summaries, and month finalization.
 
-## Step 1: Start Metro
+## Prerequisites
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+- Node.js 20 (the Cloud Functions runtime is Node 20)
+- npm
+- Android Studio with an Android emulator
+- Java 21+ for the current Firebase emulators
+- A Firebase project with the Blaze plan when deploying Cloud Functions
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+This app uses native React Native Firebase modules, so it does **not** run in Expo Go. Use `expo run:android` to create a development build.
+
+## 1. Install dependencies
+
+From the repository root:
 
 ```sh
-# Using npm
-npm start
-
-# OR using Yarn
-yarn start
+npm install
+npm --prefix functions install
 ```
 
-## Step 2: Build and run your app
+## 2. Connect Firebase
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
+The repository currently names `mess-app-439cb` in `.firebaserc`. To use another project, replace that value or run:
 
 ```sh
-# Using npm
+npx -y firebase-tools@latest login
+npx -y firebase-tools@latest use YOUR_PROJECT_ID
+```
+
+Register the Android package `com.messapp.management` if it is not already registered:
+
+```sh
+npx -y firebase-tools@latest apps:create ANDROID MessApp --package-name com.messapp.management --project YOUR_PROJECT_ID
+npx -y firebase-tools@latest apps:list ANDROID --project YOUR_PROJECT_ID
+```
+
+Use the Android app ID printed by the second command to fetch its config:
+
+```sh
+npx -y firebase-tools@latest apps:sdkconfig ANDROID YOUR_ANDROID_APP_ID --project YOUR_PROJECT_ID > google-services.json
+```
+
+In Firebase Authentication, enable the **Phone** provider. For a real Android device/build, also add the development and release SHA-1/SHA-256 fingerprints to the registered Firebase Android app.
+
+Create a Cloud Firestore database in Native mode and a default Storage bucket, then deploy the backend:
+
+```sh
+npm run functions:build
+npx -y firebase-tools@latest deploy --only firestore,storage,functions
+```
+
+## 3. Run against Firebase
+
+Start an Android emulator, then run:
+
+```sh
 npm run android
-
-# OR using Yarn
-yarn android
 ```
 
-### iOS
-
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+After the first native build, Metro can be started separately with:
 
 ```sh
-bundle install
+npm start
 ```
 
-Then, and every time you update your native dependencies, run:
+## Run locally with Firebase emulators
+
+The local host mapping is configured for the standard Android Emulator (`10.0.2.2`). First make sure `google-services.json` exists, then start all emulators:
 
 ```sh
-bundle exec pod install
+npm run emulators
 ```
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+In another terminal:
 
 ```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
+EXPO_PUBLIC_USE_FIREBASE_EMULATORS=true npm run android
 ```
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+The Emulator Suite UI is at `http://localhost:4000`. Phone-auth verification codes are shown by the Auth emulator; no SMS is sent. The hardcoded `10.0.2.2` host does not work on a physical phone without changing `src/api/firebase.ts` to the computer's LAN address.
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+## Verification
 
-## Step 3: Modify your app
+```sh
+npm run typecheck
+npm run functions:build
+```
 
-Now that you have successfully run the app, let's make changes!
+## Important behavior
 
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+- A group must have at least two admins before financial entries can be created.
+- A financial entry must be approved by an admin other than its submitter.
+- Financial and group mutations are Cloud Function-only; clients directly write only their own validated meal documents.
+- Finalizing a month prevents later meal or financial changes from affecting it.

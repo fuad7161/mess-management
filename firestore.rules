@@ -25,15 +25,40 @@ service cloud.firestore {
 
     function monthFinalized(groupId, month) {
       return exists(/databases/$(database)/documents/groups/$(groupId)/monthlySummary/$(month)) &&
-        get(/databases/$(database)/documents/groups/$(groupId)/monthlySummary/$(month)).data.finalized == true;
+        (get(/databases/$(database)/documents/groups/$(groupId)/monthlySummary/$(month)).data.finalized == true ||
+         get(/databases/$(database)/documents/groups/$(groupId)/monthlySummary/$(month)).data.closing == true);
+    }
+
+    function myGroupId() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.currentGroupId;
+    }
+
+    function validMeal(groupId, mealId) {
+      let data = request.resource.data;
+      let weights = get(/databases/$(database)/documents/groups/$(groupId)).data.mealWeights;
+      return data.keys().hasOnly(['uid', 'date', 'breakfast', 'lunch', 'dinner', 'guestMeals', 'weightsUsedSnapshot', 'updatedAt']) &&
+        data.uid == request.auth.uid &&
+        mealId == request.auth.uid + '_' + data.date &&
+        data.date is string && data.date.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+        data.breakfast is bool && data.lunch is bool && data.dinner is bool &&
+        data.guestMeals is int && data.guestMeals >= 0 && data.guestMeals <= 20 &&
+        data.weightsUsedSnapshot is map &&
+        data.weightsUsedSnapshot.breakfast is number && data.weightsUsedSnapshot.lunch is number && data.weightsUsedSnapshot.dinner is number &&
+        data.updatedAt == request.time &&
+        !monthFinalized(groupId, data.date[0:7]) &&
+        (resource == null || (
+          data.uid == resource.data.uid && data.date == resource.data.date &&
+          data.weightsUsedSnapshot == resource.data.weightsUsedSnapshot
+        )) &&
+        (resource != null || data.weightsUsedSnapshot == weights);
     }
 
     // ---------- users/{uid} ----------
     // createUserProfile runs via Cloud Function (Admin SDK), but allow the owner
     // to read/update their own basic profile fields directly.
     match /users/{uid} {
-      allow read: if isSignedIn();
-      allow create, update: if isSelf(uid);
+      allow read: if isSelf(uid) || (isSignedIn() && resource.data.currentGroupId != null && myGroupId() == resource.data.currentGroupId);
+      allow create, update: if false;
       allow delete: if false;
     }
 
@@ -53,21 +78,14 @@ service cloud.firestore {
 
       match /joinRequests/{requestUid} {
         allow read: if isAdmin(groupId) || isSelf(requestUid);
-        // requestToJoinGroup writes directly from the client per the design doc.
-        allow create: if isSelf(requestUid) && request.resource.data.status == 'pending';
-        // cancelJoinRequest (by requester) is a direct delete; approve/reject happens
-        // via the respondToJoinRequest Cloud Function (Admin SDK), not client update.
-        allow delete: if isSelf(requestUid) || isAdmin(groupId);
-        allow update: if false;
+        allow write: if false;
       }
 
       match /meals/{mealId} {
         allow read: if isMember(groupId);
         // meals/{uid}_{date} — user can only write their own doc, and only if that
         // month isn't finalized yet. mealId format: "{uid}_{yyyy-mm-dd}".
-        allow create, update: if isMember(groupId) &&
-          mealId.split('_')[0] == request.auth.uid &&
-          !monthFinalized(groupId, mealId.split('_')[1].split('-')[0] + '-' + mealId.split('_')[1].split('-')[1]);
+        allow create, update: if isMember(groupId) && validMeal(groupId, mealId);
         allow delete: if false;
       }
 

@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+functions/lib/
 .yarn/
 
 # Expo
@@ -20,9 +21,6 @@ ui-debug.log
 .env.test.local
 .env.production.local
 .env.staging
-
-# Lock file (Expo recommends committing this, but it's opted out for this project)
-package-lock.json
 
 # Agent skills (Zed)
 .agents/skills
